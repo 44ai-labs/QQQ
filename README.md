@@ -157,4 +157,28 @@ uv venv --python 3.12 --seed
 source venv/bin/activate
 uv pip install torch
 uv pip install -v -e . --no-build-isolation
+cd third_parth/third-party/fast-hadamard-transform
+pip install -v -e . --no-build-isolation
+```
+
+
+### Download the model
+
+```bash
+huggingface-cli download google/gemma-3-4b-it-qat-int4-unquantized
+```
+### Quantize the model
+
+```bash
+PYTHONPATH=. python3 examples/quant_model.py \
+--model_path /scratch/janniss/models/hub/models--google--gemma-3-4b-it-qat-int4-unquantized/snapshots/554bd242505753eef6dfae71f76ddd50c335fc46 \
+--dtype bfloat16 \
+--smooth false \
+--rotation true \
+--dataset wikitext2 \
+--nsamples 128 \
+--w_quantizer FixedQuantize \
+--w_group_size -1 \
+--gptq_mse true \
+--gptq_groupsize -1
 ```
