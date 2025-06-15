@@ -1,11 +1,14 @@
-from .llama import gptq_llama_func, QuantizedLlamaForCausalLM
-from .qwen2 import gptq_qwen2_func, QuantizedQwen2ForCausalLM
+# from .llama import gptq_llama_func, QuantizedLlamaForCausalLM
+# from .qwen2 import gptq_qwen2_func, QuantizedQwen2ForCausalLM
+from .gemma3 import gptq_gemma3_func, QuantizedGemma3ForCausalLM
 
-_GPTQ_MODEL_FUNC = {"llama": gptq_llama_func, "qwen2": gptq_qwen2_func}
+# _GPTQ_MODEL_FUNC = {"llama": gptq_llama_func, "qwen2": gptq_qwen2_func}
+_GPTQ_MODEL_FUNC = {"gemma3": gptq_gemma3_func}
 
 _QUANTIZED_MODEL_CLASS = {
-    "llama": QuantizedLlamaForCausalLM,
-    "qwen2": QuantizedQwen2ForCausalLM,
+    # "llama": QuantizedLlamaForCausalLM,
+    # "qwen2": QuantizedQwen2ForCausalLM,
+    "gemma3": QuantizedGemma3ForCausalLM,
 }
 
 
