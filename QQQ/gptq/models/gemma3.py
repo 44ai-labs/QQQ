@@ -10,8 +10,14 @@ from transformers.models.gemma3.modeling_gemma3 import (
     Gemma3Model,
     Gemma3TextScaledWordEmbedding,
     Gemma3ForCausalLM,
+    Gemma3MultiModalProjector,
+    Gemma3ForConditionalGeneration,
 )
-from transformers.models.gemma3.configuration_gemma3 import Gemma3TextConfig
+from transformers.models.auto import AutoModel
+from transformers.models.gemma3.configuration_gemma3 import (
+    Gemma3TextConfig,
+    Gemma3Config,
+)
 from transformers.activations import ACT2FN
 from ..qlinear import QuantLinear
 from ..gptq import *
@@ -24,6 +30,153 @@ logger = logging.get_logger(__name__)
 
 @torch.no_grad()
 def gptq_gemma3_func(model, dataloader, dev, args, force_to_cpu=False):
+    print("Starting GPTQ quantization ...")
+
+    use_cache = model.config.text_config.use_cache
+    model.config.text_config.use_cache = False
+    layers = model.language_model.layers
+
+    model.language_model.embed_tokens = model.language_model.embed_tokens.to(dev)
+    model.language_model.norm = model.language_model.norm.to(dev)
+    layers[0] = layers[0].to(dev)
+
+    inps = []
+    attention_mask = []
+    position_ids = []
+    cache_position = []
+    position_embeddings_global = []
+    position_embeddings_local = []
+
+    class Catcher(nn.Module):
+        def __init__(self, module):
+            super().__init__()
+            self.module = module
+
+        def forward(self, inp, **kwargs):
+            inps.append(inp)
+            position_embeddings_global.append(kwargs["position_embeddings_global"])
+            position_embeddings_local.append(kwargs["position_embeddings_local"])
+            attention_mask.append(kwargs["attention_mask"])
+            position_ids.append(kwargs["position_ids"])
+            cache_position.append(kwargs["cache_position"])
+            raise ValueError
+
+    layers[0] = Catcher(layers[0])
+    for batch in dataloader:
+        try:
+            model(batch[0].to(dev))
+        except ValueError:
+            pass
+    layers[0] = layers[0].module
+
+    if force_to_cpu:
+        layers[0] = layers[0].cpu()
+        model.language_model.embed_tokens = model.language_model.embed_tokens.cpu()
+        model.language_model.norm = model.language_model.norm.cpu()
+        torch.cuda.empty_cache()
+
+    outs = [inp.clone() for inp in inps]
+
+    quantizers = {}
+    for i, layer in enumerate(layers):
+        if layer.input_layernorm.weight.device == torch.device("cpu"):
+            layer = layer.to(dev)
+        cur_device = layer.input_layernorm.weight.device
+        inps = [inp.to(cur_device) for inp in inps]
+        outs = [out.to(cur_device) for out in outs]
+        attention_mask = [
+            att_mask.to(cur_device) if att_mask is not None else None
+            for att_mask in attention_mask
+        ]
+        position_ids = [pos_ids.to(cur_device) for pos_ids in position_ids]
+        cache_position = [
+            cache_pos.to(cur_device) if cache_pos is not None else None
+            for cache_pos in cache_position
+        ]
+
+        full = find_layers(layer)
+        sequential = [list(full.keys())]
+
+        for names in sequential:
+            subset = {n: full[n] for n in names}
+
+            gptq = {}
+            for name in subset:
+                gptq[name] = GPTQ(subset[name])
+                gptq[name].quantizer = Quantizer()
+                gptq[name].quantizer.configure(
+                    args.wbits,
+                    perchannel=True,
+                    sym=args.sym,
+                    mse=args.mse,
+                    groupsize=args.groupsize,
+                )
+
+            def add_batch(name):
+                def tmp(_, inp, out):
+                    gptq[name].add_batch(inp[0].data, out.data)
+
+                return tmp
+
+            handles = []
+            for name in subset:
+                handles.append(subset[name].register_forward_hook(add_batch(name)))
+            for j in range(args.nsamples):
+                outs[j] = layer(
+                    inps[j],
+                    position_embeddings_global=position_embeddings_global[j],
+                    position_embeddings_local=position_embeddings_local[j],
+                    attention_mask=attention_mask[j],
+                    position_ids=position_ids[j],
+                    cache_position=cache_position[j],
+                )[0]
+            for h in handles:
+                h.remove()
+
+            for name in subset:
+                print(i, name)
+                print("Quantizing ...")
+                scale, zero, g_idx, scale_extra = gptq[name].fasterquant(
+                    percdamp=args.percdamp,
+                    groupsize=args.groupsize,
+                    actorder=args.act_order,
+                    static_groups=args.static_groups,
+                )
+                quantizers["model.layers.%d.%s" % (i, name)] = (
+                    scale,
+                    zero,
+                    g_idx,
+                    scale_extra,
+                )
+                gptq[name].free()
+
+        for j in range(args.nsamples):
+            outs[j] = layer(
+                inps[j],
+                position_embeddings_global=position_embeddings_global[j],
+                position_embeddings_local=position_embeddings_local[j],
+                attention_mask=attention_mask[j],
+                position_ids=position_ids[j],
+                cache_position=cache_position[j],
+            )[0]
+
+        if force_to_cpu:
+            layers[i] = layer.cpu()
+            del layer
+        else:
+            layers[i] = layer
+        del gptq
+        torch.cuda.empty_cache()
+
+        inps, outs = outs, inps
+
+    model.config.text_config.use_cache = use_cache
+
+    return quantizers
+
+
+@torch.no_grad()
+def gptq_gemma3_text_func(model, dataloader, dev, args, force_to_cpu=False):
     print("Starting GPTQ quantization ...")
 
     use_cache = model.config.use_cache
@@ -312,4 +465,31 @@ class QuantizedGemma3ForCausalLM(Gemma3ForCausalLM):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
         # Initialize weights and apply final processing
+        self.post_init()
+
+
+class UnquantizedGemma3Model(Gemma3Model):
+    def __init__(self, config: Gemma3Config):
+        super().__init__(config)
+        self.vision_tower = AutoModel.from_config(config=config.vision_config)
+        self.multi_modal_projector = Gemma3MultiModalProjector(config)
+        self.vocab_size = config.text_config.vocab_size
+
+        language_model = AutoModel.from_config(config=config.text_config)
+        self.language_model = language_model
+
+        self.pad_token_id = (
+            self.config.pad_token_id if self.config.pad_token_id is not None else -1
+        )
+        self.post_init()
+
+
+class QuantizedGemma3ForConditionalGeneration(Gemma3ForConditionalGeneration):
+    def __init__(self, config: Gemma3Config):
+        super().__init__(config)
+        self.model = UnquantizedGemma3Model(config)
+        # we do not quantize the lm_head
+        self.lm_head = nn.Linear(
+            config.text_config.hidden_size, config.text_config.vocab_size, bias=False
+        )
         self.post_init()

@@ -172,17 +172,18 @@ huggingface-cli download google/gemma-3-4b-it-qat-int4-unquantized
 We use the: google/gemma-3-4b-it-qat-q4_0-unquantized
 Instead of the int4-unquantized (as they have Gemma3..ForConditionalGeneration) really not nice for us.
 
+# /scratch/janniss/models/hub/models--google--gemma-3-12b-it-qat-q4_0-unquantized/snapshots/68f7ee4fbd59087436ada77ed2d62f373fdd4482
 
 ```bash
 PYTHONPATH=. python3 examples/quant_model.py \
---model_path /home/janniss/.cache/huggingface/hub/models--google--gemma-3-1b-it-qat-q4_0-unquantized/snapshots/a6692c1945954f4aa39a17b8dfba4a7e62db3d4f \
+--model_path /scratch/janniss/models/hub/models--google--gemma-3-4b-it-qat-q4_0-unquantized/snapshots/7c0881d809c27a8356951b1abbf5be1b827e875c \
 --dtype bfloat16 \
 --smooth false \
---rotation true \
+--rotation false \
 --dataset wikitext2 \
---nsamples 4 \
---w_quantizer FixedQuantize \
---w_group_size -1 \
---gptq_mse true \
---gptq_groupsize -1
+--nsamples 128 \
+--w_quantizer GroupFixedQuantize \
+--w_group_size 128 \
+--gptq_mse false \
+--gptq_groupsize 128
 ```

@@ -55,9 +55,16 @@ def pack_model(
     if force_layer_back_to_cpu:
         model.to(CPU)
 
+    model_type = get_model_architecture(model.config)
     # logger.info("Packing model...")
     layers = find_layers(model)
-    layers = {n: layers[n] for n in quantizers}
+    if model_type == "gemma3":
+        layers = {
+            n: layers[n.split(".")[0] + ".language_model." + ".".join(n.split(".")[1:])]
+            for n in quantizers
+        }
+    else:
+        layers = {n: layers[n] for n in quantizers}
     make_quant(
         model,
         quantizers,
