@@ -5,3 +5,5 @@ accelerate
 zstandard
 lm_eval==0.4.2
 torch
+matplotlib
+sentencepiece
