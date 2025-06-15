@@ -161,9 +161,9 @@ def rotate_head(model, Q, model_type, device) -> None:
 def rotate_ov_proj(layer, model_type, head_num, head_dim):
     v_proj = layer.self_attn.v_proj
     o_proj = layer.self_attn.o_proj
-    apply_exact_had_to_linear(v_proj, had_dim=-1, output=True)
+    apply_exact_had_to_linear(v_proj, had_dim=head_dim, output=True)
     # apply_exact_had_to_linear(o_proj, had_dim=-1, output=False)
-    apply_exact_had_to_linear(o_proj, had_dim=-1, output=False)
+    apply_exact_had_to_linear(o_proj, had_dim=head_dim, output=False)
 
 
 @torch.inference_mode()
@@ -171,12 +171,12 @@ def rotate_model(model, rotation_config, args, Q=None):
     device = str2torch_device(args.device)
     Q = (
         get_orthogonal_matrix(
-            model.config.text_config.hidden_size, rotation_config.rotate_mode, device
+            model.config.hidden_size, rotation_config.rotate_mode, device
         )
         if Q is None
         else Q
     )
-    config = model.config.text_config
+    config = model.config
     num_heads = config.num_attention_heads
     model_dim = config.hidden_size
     head_dim = model_dim // num_heads

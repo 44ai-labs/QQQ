@@ -38,6 +38,8 @@ def gptq_gemma3_func(model, dataloader, dev, args, force_to_cpu=False):
     attention_mask = []
     position_ids = []
     cache_position = []
+    position_embeddings_global = []
+    position_embeddings_local = []
 
     class Catcher(nn.Module):
         def __init__(self, module):
@@ -46,6 +48,8 @@ def gptq_gemma3_func(model, dataloader, dev, args, force_to_cpu=False):
 
         def forward(self, inp, **kwargs):
             inps.append(inp)
+            position_embeddings_global.append(kwargs["position_embeddings_global"])
+            position_embeddings_local.append(kwargs["position_embeddings_local"])
             attention_mask.append(kwargs["attention_mask"])
             position_ids.append(kwargs["position_ids"])
             cache_position.append(kwargs["cache_position"])
@@ -114,6 +118,8 @@ def gptq_gemma3_func(model, dataloader, dev, args, force_to_cpu=False):
             for j in range(args.nsamples):
                 outs[j] = layer(
                     inps[j],
+                    position_embeddings_global=position_embeddings_global[j],
+                    position_embeddings_local=position_embeddings_local[j],
                     attention_mask=attention_mask[j],
                     position_ids=position_ids[j],
                     cache_position=cache_position[j],
@@ -141,6 +147,8 @@ def gptq_gemma3_func(model, dataloader, dev, args, force_to_cpu=False):
         for j in range(args.nsamples):
             outs[j] = layer(
                 inps[j],
+                position_embeddings_global=position_embeddings_global[j],
+                position_embeddings_local=position_embeddings_local[j],
                 attention_mask=attention_mask[j],
                 position_ids=position_ids[j],
                 cache_position=cache_position[j],

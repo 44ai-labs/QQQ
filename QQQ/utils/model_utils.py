@@ -20,7 +20,8 @@ _MODEL_TYPE = {
     "LlamaForCausalLM": "llama",
     "LLaMAForCausalLM": "llama",
     "Qwen2ForCausalLM": "qwen2",
-    "Gemma3ForConditionalGeneration": "gemma3",
+    "Gemma3ForConditionalGeneration": "gemma3", # .language_model and .text_config issue (int4-quantized are like that)
+    "Gemma3ForCausalLM": "gemma3", # 1b
 }
 
 
@@ -144,10 +145,10 @@ def get_model_config(
 
 
 def get_transformer_layers(model, model_type):
-    if model_type in ["llama", "qwen2"]:
+    if model_type in ["llama", "qwen2", "gemma3"]:
         return [layer for layer in model.model.layers]
-    elif model_type == "gemma3":
-        return [layer for layer in model.language_model.layers]
+    # elif model_type == "gemma3":
+    #     return [layer for layer in model.language_model.layers]
     else:
         raise ValueError(f"Unknown model type {model_type}")
 
@@ -161,21 +162,21 @@ def get_lm_head(model, model_type):
 
 def get_pre_head_layernorm(model, model_type):
     # NOTE(HandH1998): only support RMSnorm
-    if model_type in ["llama", "qwen2"]:
+    if model_type in ["llama", "qwen2", "gemma3"]:
         pre_head_layernorm = model.model.norm
         return pre_head_layernorm
-    elif model_type == "gemma3":
-        pre_head_layernorm = model.language_model.norm
-        return pre_head_layernorm
+    # elif model_type == "gemma3":
+    #     pre_head_layernorm = model.language_model.norm
+    #     return pre_head_layernorm
     else:
         raise ValueError(f"Unknown model type {model_type}")
 
 
 def get_embeddings(model, model_type) -> list[torch.nn.Module]:
-    if model_type in ["llama", "qwen2"]:
+    if model_type in ["llama", "qwen2", "gemma3"]:
         return [model.model.embed_tokens]
-    elif model_type == "gemma3":
-        return [model.language_model.embed_tokens]
+    # elif model_type == "gemma3":
+    #     return [model.language_model.embed_tokens]
     else:
         raise ValueError(f"Unknown model type {model_type}")
 
