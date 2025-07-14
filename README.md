@@ -148,3 +148,42 @@ If you find QQQ useful or relevant to your research, please cite our paper:
 }
 
 ```
+
+
+### Install
+
+```bash
+uv venv --python 3.12 --seed
+source venv/bin/activate
+uv pip install torch
+uv pip install -v -e . --no-build-isolation
+cd third_parth/third-party/fast-hadamard-transform
+pip install -v -e . --no-build-isolation
+```
+
+
+### Download the model
+
+```bash
+huggingface-cli download google/gemma-3-4b-it-qat-int4-unquantized
+```
+### Quantize the model
+
+We use the: google/gemma-3-4b-it-qat-q4_0-unquantized
+Instead of the int4-unquantized (as they have Gemma3..ForConditionalGeneration) really not nice for us.
+
+# /scratch/janniss/models/hub/models--google--gemma-3-12b-it-qat-q4_0-unquantized/snapshots/68f7ee4fbd59087436ada77ed2d62f373fdd4482
+
+```bash
+PYTHONPATH=. python3 examples/quant_model.py \
+--model_path /scratch/janniss/models/hub/models--google--gemma-3-4b-it-qat-q4_0-unquantized/snapshots/7c0881d809c27a8356951b1abbf5be1b827e875c \
+--dtype bfloat16 \
+--smooth false \
+--rotation false \
+--dataset wikitext2 \
+--nsamples 128 \
+--w_quantizer GroupFixedQuantize \
+--w_group_size 128 \
+--gptq_mse false \
+--gptq_groupsize 128
+```

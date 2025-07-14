@@ -2,6 +2,7 @@
 import torch
 import typing
 import tqdm
+import math
 from QQQ.utils import (
     get_model_architecture,
     get_transformer_layers,
@@ -51,7 +52,7 @@ def fuse_layer_norms(model):
     # Fuse the linear operations in Layernorm into the adjacent linear blocks.
     for layer in layers:
         # fuse the input layernorms into the linear layers
-        if model_type in ["llama", "qwen2"]:
+        if model_type in ["llama", "qwen2", "gemma3", "gemma3_text"]:
             fuse_ln_linear(
                 layer.post_attention_layernorm, [layer.mlp.up_proj, layer.mlp.gate_proj]
             )
@@ -161,6 +162,8 @@ def rotate_head(model, Q, model_type, device) -> None:
 def rotate_ov_proj(layer, model_type, head_num, head_dim):
     v_proj = layer.self_attn.v_proj
     o_proj = layer.self_attn.o_proj
+    if math.sqrt(head_dim) != int(math.sqrt(head_dim)):
+        head_dim = -1
     apply_exact_had_to_linear(v_proj, had_dim=head_dim, output=True)
     # apply_exact_had_to_linear(o_proj, had_dim=-1, output=False)
     apply_exact_had_to_linear(o_proj, had_dim=head_dim, output=False)
@@ -168,20 +171,33 @@ def rotate_ov_proj(layer, model_type, head_num, head_dim):
 
 @torch.inference_mode()
 def rotate_model(model, rotation_config, args, Q=None):
+    model_type = get_model_architecture(model.config)
     device = str2torch_device(args.device)
-    Q = (
-        get_orthogonal_matrix(
-            model.config.hidden_size, rotation_config.rotate_mode, device
+    if model_type == "gemma3":
+        Q = (
+            get_orthogonal_matrix(
+                model.config.text_config.hidden_size, rotation_config.rotate_mode, device
+            )
+            if Q is None
+            else Q
         )
-        if Q is None
-        else Q
-    )
-    config = model.config
-    num_heads = config.num_attention_heads
-    model_dim = config.hidden_size
+        num_heads = model.config.text_config.num_attention_heads
+        model_dim = model.config.text_config.hidden_size
+    else:
+        Q = (
+            get_orthogonal_matrix(
+                model.config.hidden_size, rotation_config.rotate_mode, device
+            )
+            if Q is None
+            else Q
+        )
+        num_heads = model.config.num_attention_heads
+        model_dim = model.config.hidden_size
     head_dim = model_dim // num_heads
 
-    model_type = get_model_architecture(model.config)
+    print("HEAD DIM:", head_dim, model_dim, num_heads)
+
+
     rotate_embeddings(model, Q, model_type, device)
     rotate_head(model, Q, model_type, device)
     free_memory()
